@@ -50,8 +50,8 @@ const EntrySchema = new Schema({
   ciphertext: { type: String, required: true },
   iv: { type: String, required: true },
   tag: { type: String, required: true },
-  entryDate: { type: Date, default: Date.now }, // custom diary date
-  tags: { type: [String], default: [] }, // free-form tags
+  entryDate: { type: Date, default: Date.now },
+  tags: { type: [String], default: [] },
   location: { type: String },
   weather: { type: String },
   mood: { type: Number, min: 1, max: 5 },
@@ -148,6 +148,36 @@ app.post('/auth/login', async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     const token = jwt.sign({ userId: user._id.toString() }, JWT_SECRET, { expiresIn: '7d' });
     return res.json({ token, user: { id: user._id, email: user.email, name: user.name } });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Change password
+app.post('/auth/change-password', authMiddleware, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword)
+      return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+
+    if (newPassword.length < 8)
+      return res.status(400).json({ error: 'newPassword must be at least 8 characters' });
+
+    if (currentPassword === newPassword)
+      return res.status(400).json({ error: 'New password must be different from current password' });
+
+    const user = await User.findById(req.user.userId);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!ok) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    user.passwordHash = await bcrypt.hash(newPassword, 12);
+    await user.save();
+
+    res.json({ ok: true, msg: 'Password changed successfully' });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Server error' });
@@ -258,6 +288,7 @@ app.put('/entries/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Delete entry
 app.delete('/entries/:id', authMiddleware, async (req, res) => {
   try {
     const r = await Entry.deleteOne({ _id: req.params.id, user: req.user.userId });
